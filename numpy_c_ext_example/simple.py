@@ -25,7 +25,7 @@ def compute_F(m, r, F):
             mj = m[j]
             rj = r[j]
             rvec = rj - ri
-            rnorm3 = np.linalg.norm(rvec)**3
+            rnorm3 = (rvec[0]**2 + rvec[1]**2)**1.5 # Faster than linalg.norm.
             Fij = mi * mj * rvec / rnorm3
             F[i] += Fij
             F[j] -= Fij
@@ -64,4 +64,4 @@ def run_plot(ax, steps, m, r, v, F):
 
 if __name__ == "__main__":
     m, r, v, F = initialize(100)
-    evolve(100, m, r, v, F)
+    evolve(1000, m, r, v, F)
