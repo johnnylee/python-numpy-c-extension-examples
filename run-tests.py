@@ -41,9 +41,10 @@ def test_fn(evolve_fn, name, steps=1000, dt=1e-3, bodies=101, threads=1):
 if __name__ == "__main__":
     # Single CPU only tests. 
     test_fn(lib.evolve, "Python", steps=512)
-
-    test_fn(lib.evolve_c_simple, "C Simple", steps=32000)
-    test_fn(lib.evolve_c_simd1, "C SIMD", steps=32000)
+    
+    test_fn(lib.evolve_c_simple1, "C Simple 1", steps=32000)
+    test_fn(lib.evolve_c_simple2, "C Simple 2", steps=32000)
+    test_fn(lib.evolve_c_simd1, "C SIMD 1", steps=32000)
     
     # Multi-threaded tests. 
     threads = 0
@@ -58,7 +59,6 @@ if __name__ == "__main__":
 
         test_fn(
             lib.evolve_c_omp1, "C OpenMP 1", steps=steps, threads=threads)
-
         test_fn(
             lib.evolve_c_simdomp1, "C SIMD OpenMP 1", 
             steps=steps, threads=threads)

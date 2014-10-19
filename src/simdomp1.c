@@ -20,86 +20,49 @@ PyMODINIT_FUNC initsimdomp1(void) {
   import_array();
 }
 
-
-/*****************************************************************************
- * Array access macros.                                                      *
- *****************************************************************************/
-#define m(x0) (*(npy_float64*)((PyArray_BYTES(py_m) + \
-                                (x0) * PyArray_STRIDES(py_m)[0])))
-#define m_shape(i) (py_m->dimensions[(i)])
-
-#define r(x0, x1) (*(npy_float64*)((PyArray_BYTES(py_r) + \
-                                    (x0) * PyArray_STRIDES(py_r)[0] + \
-                                    (x1) * PyArray_STRIDES(py_r)[1])))
-#define rv(x0) (*(__m128d*)((PyArray_BYTES(py_r) +              \
-                             (x0) * PyArray_STRIDES(py_r)[0])))
-#define r_shape(i) (py_r->dimensions[(i)])
-
-#define v(x0, x1) (*(npy_float64*)((PyArray_BYTES(py_v) + \
-                                    (x0) * PyArray_STRIDES(py_v)[0] + \
-                                    (x1) * PyArray_STRIDES(py_v)[1])))
-#define vv(x0) (*(__m128d*)((PyArray_BYTES(py_v) +              \
-                             (x0) * PyArray_STRIDES(py_v)[0])))
-#define v_shape(i) (py_v->dimensions[(i)])
-
-#define F(x0, x1) (*(npy_float64*)((PyArray_BYTES(py_F) + \
-                                    (x0) * PyArray_STRIDES(py_F)[0] + \
-                                    (x1) * PyArray_STRIDES(py_F)[1])))
-#define Fv(x0) (*(__m128d*)((PyArray_BYTES(py_F) +              \
-                             (x0) * PyArray_STRIDES(py_F)[0])))
-#define F_shape(i) (py_F->dimensions[(i)])
-
-#define Ft(x0, x1, x2) (*(npy_float64*)((PyArray_BYTES(py_Ft) +         \
-                                         (x0) * PyArray_STRIDES(py_Ft)[0] + \
-                                         (x1) * PyArray_STRIDES(py_Ft)[1] + \
-                                         (x2) * PyArray_STRIDES(py_Ft)[2])))
-#define Ftv(x0, x1) (*(__m128d*)((PyArray_BYTES(py_Ft) +         \
-                                  (x0) * PyArray_STRIDES(py_Ft)[0] +    \
-                                  (x1) * PyArray_STRIDES(py_Ft)[1])))
-
-#define Ft_shape(i) (py_Ft->dimensions[(i)])
-
 /*****************************************************************************
  * compute_F                                                                 *
  *****************************************************************************/
 static inline void compute_F(npy_int64 threads,
                              npy_int64 N,
-                             PyArrayObject *py_m,
-                             PyArrayObject *py_r,
-                             PyArrayObject *py_F, 
-                             PyArrayObject *py_Ft) {
-  npy_int64 id, i, j;
-  __m128d s, tmp;
+                             npy_float64 *m,
+                             __m128d *r,
+                             __m128d *F, 
+                             __m128d *Ft) {
+  npy_int64 id, i, j, Nid;
+  __m128d s, s2, tmp;
   npy_float64 s3;
   
   // Zero out the thread-local force arrays. 
-#pragma omp parallel for private(i, id)
-  for(i = 0; i < N; i++) {
-    for(id = 0; id < threads; ++id) {
-      Ftv(id, i) = _mm_set1_pd(0);
+#pragma omp parallel for private(i, id, Nid)
+  for(id = 0; id < threads; ++id) {
+    Nid = N * id;
+    for(i = 0; i < N; i++) {
+      Ft[i + Nid] = _mm_set1_pd(0);
     }
   }
-
-  // Compute the interaction forces.
-#pragma omp parallel for                        \
-  private(id, i, j, s, tmp, s3)                 \
+  
+  // Compute forces between pairs of bodies.
+#pragma omp parallel for                 \
+  private(id, i, j, s, s2, s3, tmp, Nid) \
   schedule(dynamic)
-
   for(i = 0; i < N; ++i) {
-    
-    Fv(i) = _mm_set1_pd(0);
-
     id = omp_get_thread_num();
+    Nid = N * id;
+
+    F[i] = _mm_set1_pd(0);
 
     for(j = i + 1; j < N; ++j) {
       
-      s = rv(j) - rv(i);
-      s3 = pow(s[0]*s[0] + s[1]*s[1], 1.5);
+      s = r[j] - r[i];
+      s2 = s * s;
+      s3 = sqrt(s2[0] + s2[1]);
+      s3 *= s3 * s3;
       
-      tmp = s * m(i) * m(j) / s3;
+      tmp = s * m[i] * m[j] / s3;
       
-      Ftv(id, i) += tmp;
-      Ftv(id, j) -= tmp;
+      Ft[Nid + i] += tmp;
+      Ft[Nid + j] -= tmp;
     }
   }
   
@@ -107,7 +70,7 @@ static inline void compute_F(npy_int64 threads,
 #pragma omp parallel for private(i, id)
   for(i = 0; i < N; ++i) {
     for(id = 0; id < threads; ++id) {
-      Fv(i) += Ftv(id, i);
+      F[i] += Ft[N*id + i];
     }
   }
 }
@@ -117,10 +80,12 @@ static inline void compute_F(npy_int64 threads,
  *****************************************************************************/
 static PyObject *evolve(PyObject *self, PyObject *args) {
   // Variable declarations.
-  npy_int64 N, threads, steps;
+  npy_int64 N, threads, steps, step, i;
   npy_float64 dt;
 
   PyArrayObject *py_m, *py_r, *py_v, *py_F, *py_Ft;
+  npy_float64 *m;
+  __m128d *r, *v, *F, *Ft;
 
   // Parse variables. 
   if (!PyArg_ParseTuple(args, "ldllO!O!O!O!O!",
@@ -137,19 +102,24 @@ static PyObject *evolve(PyObject *self, PyObject *args) {
   }
   
   omp_set_num_threads(threads);
+  
+  // Get underlying arrays from numpy arrays. 
+  m  = (npy_float64*)PyArray_DATA(py_m);
+  r  = (__m128d*)PyArray_DATA(py_r);
+  v  = (__m128d*)PyArray_DATA(py_v);
+  F  = (__m128d*)PyArray_DATA(py_F);
+  Ft = (__m128d*)PyArray_DATA(py_Ft);
 
-  npy_int64 i, j; 
-
-  for(i = 0; i < steps; ++i) {
-
-    compute_F(threads, N, py_m, py_r, py_F, py_Ft);
+  // Evolve the world. 
+  for(step = 0; step < steps; ++step) {
+    compute_F(threads, N, m, r, F, Ft);
     
-#pragma omp parallel for private(j)
-    for(j = 0; j < N; ++j) {
-      vv(j) += Fv(j) * dt / m(j);
-      rv(j) += vv(j) * dt;
+#pragma omp parallel for private(i)
+    for(i = 0; i < N; ++i) {
+      v[i] += F[i] * dt / m[i];
+      r[i] += v[i] * dt;
     }
   } 
 
-  Py_RETURN_NONE; // Nothing to return. 
+  Py_RETURN_NONE; 
 }

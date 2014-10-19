@@ -11,7 +11,10 @@ setup(name             = "numpy_c_ext_example",
       url              = "https://www.crumpington.com",
       ext_modules      = [
           Extension(
-              'lib.simple', ['src/simple.c'],
+              'lib.simple1', ['src/simple1.c'],
+              extra_compile_args=["-Ofast", "-march=native"]),
+          Extension(
+              'lib.simple2', ['src/simple2.c'],
               extra_compile_args=["-Ofast", "-march=native"]),
           Extension(
               'lib.simd1', ['src/simd1.c'],

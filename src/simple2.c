@@ -2,9 +2,8 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <math.h>
-#include <x86intrin.h>
 
-// Forward declarations of our function.
+// Forward function declaration.
 static PyObject *evolve(PyObject *self, PyObject *args); 
 
 // Boilerplate: function list.
@@ -14,8 +13,8 @@ static PyMethodDef methods[] = {
 };
 
 // Boilerplate: Module initialization.
-PyMODINIT_FUNC initsimd1(void) {
-  (void) Py_InitModule("simd1", methods);
+PyMODINIT_FUNC initsimple2(void) {
+  (void) Py_InitModule("simple2", methods);
   import_array();
 }
 
@@ -24,29 +23,38 @@ PyMODINIT_FUNC initsimd1(void) {
  *****************************************************************************/
 static inline void compute_F(npy_int64 N,
                              npy_float64 *m,
-                             __m128d *r,
-                             __m128d *F) {
-  npy_int64 i, j;
-  __m128d s, s2, tmp;
-  npy_float64 s3;
+                             npy_float64 *r,
+                             npy_float64 *F) {
+  npy_int64 i, j, xi, yi, xj, yj;
+  npy_float64 sx, sy, Fx, Fy, s3, tmp;
   
-  // Set all forces to zero.
+  // Set all forces to zero. 
   for(i = 0; i < N; ++i) {
-    F[i] = _mm_set1_pd(0);
+    F[2*i] = F[2*i + 1] = 0;
   }
   
-  // Compute forces between pairs of bodies. 
+  // Compute forces between pairs of bodies.
   for(i = 0; i < N; ++i) {
+    xi = 2*i;
+    yi = xi + 1;
     for(j = i + 1; j < N; ++j) {
-      s = r[j] - r[i];
+      xj = 2*j; 
+      yj = xj + 1;
 
-      s2 = s * s;
-      s3 = sqrt(s2[0] + s2[1]);
-      s3 *= s3 * s3;
+      sx = r[xj] - r[xi];
+      sy = r[yj] - r[yi];
 
-      tmp = s * m[i] * m[j] / s3;
-      F[i] += tmp;
-      F[j] -= tmp;
+      s3 = sqrt(sx*sx + sy*sy);
+      s3 *= s3*s3;
+
+      tmp = m[i] * m[j] / s3;
+      Fx = tmp * sx;
+      Fy = tmp * sy;
+      
+      F[xi] += Fx;
+      F[yi] += Fy;
+      F[xj] -= Fx;
+      F[yj] -= Fy;
     }
   }
 }
@@ -55,13 +63,12 @@ static inline void compute_F(npy_int64 N,
  * evolve                                                                    *
  *****************************************************************************/
 static PyObject *evolve(PyObject *self, PyObject *args) {
-  // Variable declarations.
-  npy_int64 N, threads, steps, step, i;
-  npy_float64 dt;
 
+  // Declare variables. 
+  npy_int64 N, threads, steps, step, i, xi, yi;
+  npy_float64 dt;
   PyArrayObject *py_m, *py_r, *py_v, *py_F;
-  npy_float64 *m;
-  __m128d *r, *v, *F;
+  npy_float64 *m, *r, *v, *F;
 
   // Parse variables. 
   if (!PyArg_ParseTuple(args, "ldllO!O!O!O!",
@@ -73,23 +80,28 @@ static PyObject *evolve(PyObject *self, PyObject *args) {
                         &PyArray_Type, &py_r,
                         &PyArray_Type, &py_v,
                         &PyArray_Type, &py_F)) {
-
     return NULL;
   }
   
   // Get underlying arrays from numpy arrays. 
   m = (npy_float64*)PyArray_DATA(py_m);
-  r = (__m128d*)PyArray_DATA(py_r);
-  v = (__m128d*)PyArray_DATA(py_v);
-  F = (__m128d*)PyArray_DATA(py_F);
+  r = (npy_float64*)PyArray_DATA(py_r);
+  v = (npy_float64*)PyArray_DATA(py_v);
+  F = (npy_float64*)PyArray_DATA(py_F);
   
-  // Evolve the world.
+  // Evolve the world. 
   for(step = 0; step < steps; ++step) {
     compute_F(N, m, r, F);
     
     for(i = 0; i < N; ++i) {
-      v[i] += F[i] * dt / m[i];
-      r[i] += v[i] * dt;
+      xi = 2 * i;
+      yi = xi + 1;
+
+      v[xi] += F[xi] * dt / m[i];
+      v[yi] += F[yi] * dt / m[i];
+      
+      r[xi] += v[xi] * dt;
+      r[yi] += v[yi] * dt;
     }
   }
 
