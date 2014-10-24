@@ -33,26 +33,19 @@ static inline void compute_F(npy_int64 threads,
   __m128d s, s2, tmp;
   npy_float64 s3;
 
-#pragma omp parallel 
+#pragma omp parallel private(id, i, j, s, s2, s3, tmp, Nid) 
   {
-  
+    id = omp_get_thread_num();
+    Nid = N * id; // Zero-index in thread-local array Ft. 
+    
     // Zero out the thread-local force arrays. 
-#pragma omp for private(i, id, Nid)
-    for(id = 0; id < threads; ++id) {
-      Nid = N * id;
-      for(i = 0; i < N; i++) {
-        Ft[i + Nid] = _mm_set1_pd(0);
-      }
+    for(i = 0; i < N; i++) {
+      Ft[Nid + i] = _mm_set1_pd(0);
     }
     
     // Compute forces between pairs of bodies.
-#pragma omp for                          \
-  private(id, i, j, s, s2, s3, tmp, Nid) \
-  schedule(dynamic) 
+#pragma omp for schedule(dynamic, 8) 
     for(i = 0; i < N; ++i) {
-      id = omp_get_thread_num();
-      Nid = N * id; // Zero-index in thread-local array Ft. 
-      
       F[i] = _mm_set1_pd(0);
       
       for(j = i + 1; j < N; ++j) {
@@ -70,7 +63,7 @@ static inline void compute_F(npy_int64 threads,
     }
     
     // Sum the thread-local forces computed above.
-#pragma omp for private(i, id)
+#pragma omp for 
     for(i = 0; i < N; ++i) {
       for(id = 0; id < threads; ++id) {
         F[i] += Ft[N*id + i];

@@ -11,7 +11,8 @@ class World(object):
     
     threads : (int) The number of threads to use for multithreaded
               implementations.
-    
+    dt      : (float) The time-step.
+
     STATE OF THE WORLD: 
 
     N : (int) The number of bodies in the simulation.
