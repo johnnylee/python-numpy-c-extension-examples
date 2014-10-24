@@ -63,14 +63,13 @@ static inline void compute_F(npy_int64 N,
  * evolve                                                                    *
  *****************************************************************************/
 static PyObject *evolve(PyObject *self, PyObject *args) {
-
   // Declare variables. 
   npy_int64 N, threads, steps, step, i, xi, yi;
   npy_float64 dt;
   PyArrayObject *py_m, *py_r, *py_v, *py_F;
   npy_float64 *m, *r, *v, *F;
 
-  // Parse variables. 
+  // Parse arguments. 
   if (!PyArg_ParseTuple(args, "ldllO!O!O!O!",
                         &threads,
                         &dt,

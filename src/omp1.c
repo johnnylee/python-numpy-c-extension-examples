@@ -30,65 +30,69 @@ static inline void compute_F(npy_int64 threads,
                              npy_float64 *Ft) {
   npy_int64 id, i, j, xi, yi, xj, yj, Nid;
   npy_float64 sx, sy, Fx, Fy, s3, tmp;
-  
-  // Zero out the thread-local force arrays. 
-#pragma omp parallel for private(id, i, xi, yi)
-  for(i = 0; i < N; i++) {
-    for(id = 0; id < threads; ++id) {
-      xi = 2*(N*id + i);
-      yi = xi + 1;
-      Ft[xi] = Ft[yi] = 0;
-    }
-  }
 
-  // Compute forces between pairs of bodies. 
-#pragma omp parallel for                                             \
+#pragma omp parallel
+  {
+  
+    // Zero out the thread-local force arrays. 
+#pragma omp for private(id, i, xi, yi)
+    for(i = 0; i < N; i++) {
+      for(id = 0; id < threads; ++id) {
+        xi = 2*(N*id + i);
+        yi = xi + 1;
+        Ft[xi] = Ft[yi] = 0;
+      }
+    }
+    
+    // Compute forces between pairs of bodies. 
+#pragma omp for                                                    \
   private(id, i, j, xi, yi, xj, yj, Nid, sx, sy, Fx, Fy, s3, tmp)  \
   schedule(dynamic)
-  for(i = 0; i < N; ++i) {
-    xi = 2*i;
-    yi = xi + 1;
-
-    F[xi] = F[yi] = 0;
-
-    id = omp_get_thread_num();
-    Nid = 2 * N * id;
-
-    for(j = i + 1; j < N; ++j) {
-      xj = 2*j;
-      yj = xj + 1;
-
-      sx = r[xj] - r[xi];
-      sy = r[yj] - r[yi];
-
-      s3 = sqrt(sx*sx + sy*sy);
-      s3 *= s3 * s3;
+    for(i = 0; i < N; ++i) {
+      xi = 2*i;
+      yi = xi + 1;
       
-      tmp = m[i] * m[j] / s3;
-      Fx = tmp * sx;
-      Fy = tmp * sy;
+      F[xi] = F[yi] = 0;
       
-      Ft[Nid + xi] += Fx;
-      Ft[Nid + yi] += Fy;
-      Ft[Nid + xj] -= Fx;
-      Ft[Nid + yj] -= Fy;
+      id = omp_get_thread_num();
+      Nid = 2 * N * id;
+      
+      for(j = i + 1; j < N; ++j) {
+        xj = 2*j;
+        yj = xj + 1;
+        
+        sx = r[xj] - r[xi];
+        sy = r[yj] - r[yi];
+        
+        s3 = sqrt(sx*sx + sy*sy);
+        s3 *= s3 * s3;
+        
+        tmp = m[i] * m[j] / s3;
+        Fx = tmp * sx;
+        Fy = tmp * sy;
+        
+        Ft[Nid + xi] += Fx;
+        Ft[Nid + yi] += Fy;
+        Ft[Nid + xj] -= Fx;
+        Ft[Nid + yj] -= Fy;
+      }
     }
-  }
-  
-  // Sum the thread-local forces computed above.
-#pragma omp parallel for private(id, i, xi, yi, xj, yj)
-  for(i = 0; i < N; ++i) {
-    xi = 2*i;
-    yi = xi + 1;
-    for(id = 0; id < threads; ++id) {
-      xj = 2*(N*id + i);
-      yj = xj + 1;
-      F[xi] += Ft[xj];
-      F[yi] += Ft[yj];
+    
+    // Sum the thread-local forces computed above.
+#pragma omp for private(id, i, xi, yi, xj, yj)
+    for(i = 0; i < N; ++i) {
+      xi = 2*i;
+      yi = xi + 1;
+      for(id = 0; id < threads; ++id) {
+        xj = 2*(N*id + i);
+        yj = xj + 1;
+        F[xi] += Ft[xj];
+        F[yi] += Ft[yj];
+      }
     }
   }
 }
-
+  
 /*****************************************************************************
  * evolve                                                                    *
  *****************************************************************************/
@@ -100,7 +104,7 @@ static PyObject *evolve(PyObject *self, PyObject *args) {
   PyArrayObject *py_m, *py_r, *py_v, *py_F, *py_Ft;
   npy_float64 *m, *r, *v, *F, *Ft;
 
-  // Parse variables. 
+  // Parse arguments. 
   if(!PyArg_ParseTuple(args, "ldllO!O!O!O!O!",
                        &threads,
                        &dt,

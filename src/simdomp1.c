@@ -32,45 +32,49 @@ static inline void compute_F(npy_int64 threads,
   npy_int64 id, i, j, Nid;
   __m128d s, s2, tmp;
   npy_float64 s3;
-  
-  // Zero out the thread-local force arrays. 
-#pragma omp parallel for private(i, id, Nid)
-  for(id = 0; id < threads; ++id) {
-    Nid = N * id;
-    for(i = 0; i < N; i++) {
-      Ft[i + Nid] = _mm_set1_pd(0);
-    }
-  }
-  
-  // Compute forces between pairs of bodies.
-#pragma omp parallel for                 \
-  private(id, i, j, s, s2, s3, tmp, Nid) \
-  schedule(dynamic)
-  for(i = 0; i < N; ++i) {
-    id = omp_get_thread_num();
-    Nid = N * id;
 
-    F[i] = _mm_set1_pd(0);
-
-    for(j = i + 1; j < N; ++j) {
-      
-      s = r[j] - r[i];
-      s2 = s * s;
-      s3 = sqrt(s2[0] + s2[1]);
-      s3 *= s3 * s3;
-      
-      tmp = s * m[i] * m[j] / s3;
-      
-      Ft[Nid + i] += tmp;
-      Ft[Nid + j] -= tmp;
-    }
-  }
+#pragma omp parallel 
+  {
   
-  // Sum the thread-local forces computed above.
-#pragma omp parallel for private(i, id)
-  for(i = 0; i < N; ++i) {
+    // Zero out the thread-local force arrays. 
+#pragma omp for private(i, id, Nid)
     for(id = 0; id < threads; ++id) {
-      F[i] += Ft[N*id + i];
+      Nid = N * id;
+      for(i = 0; i < N; i++) {
+        Ft[i + Nid] = _mm_set1_pd(0);
+      }
+    }
+    
+    // Compute forces between pairs of bodies.
+#pragma omp for                          \
+  private(id, i, j, s, s2, s3, tmp, Nid) \
+  schedule(dynamic) 
+    for(i = 0; i < N; ++i) {
+      id = omp_get_thread_num();
+      Nid = N * id; // Zero-index in thread-local array Ft. 
+      
+      F[i] = _mm_set1_pd(0);
+      
+      for(j = i + 1; j < N; ++j) {
+        
+        s = r[j] - r[i];
+        s2 = s * s;
+        s3 = sqrt(s2[0] + s2[1]);
+        s3 *= s3 * s3;
+        
+        tmp = s * m[i] * m[j] / s3;
+        
+        Ft[Nid + i] += tmp;
+        Ft[Nid + j] -= tmp;
+      }
+    }
+    
+    // Sum the thread-local forces computed above.
+#pragma omp for private(i, id)
+    for(i = 0; i < N; ++i) {
+      for(id = 0; id < threads; ++id) {
+        F[i] += Ft[N*id + i];
+      }
     }
   }
 }
@@ -87,7 +91,7 @@ static PyObject *evolve(PyObject *self, PyObject *args) {
   npy_float64 *m;
   __m128d *r, *v, *F, *Ft;
 
-  // Parse variables. 
+  // Parse arguments. 
   if (!PyArg_ParseTuple(args, "ldllO!O!O!O!O!",
                         &threads,
                         &dt,

@@ -87,7 +87,7 @@ static PyObject *evolve(PyObject *self, PyObject *args) {
   npy_float64 dt;
   PyArrayObject *py_m, *py_r, *py_v, *py_F;
 
-  // Parse variables. 
+  // Parse arguments. 
   if (!PyArg_ParseTuple(args, "ldllO!O!O!O!",
                         &threads,
                         &dt,
