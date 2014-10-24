@@ -52,7 +52,7 @@ if __name__ == "__main__":
     while True:
 
         threads += 1
-        if threads > 2*mp.cpu_count():
+        if threads > mp.cpu_count() + 2:
             break
 
         steps = threads * 32000
